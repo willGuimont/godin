@@ -1,6 +1,5 @@
 package godin
 
-import "core:mem"
 import "core:slice"
 
 Stone :: enum {

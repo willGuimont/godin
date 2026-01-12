@@ -16,6 +16,8 @@ BOTTOM_GRID_Y :: GRID_CENTER_Y + (BOARD_SIZE / 2) * GRID_SPACING
 LEFT_GRID_X :: GRID_CENTER_X - (BOARD_SIZE / 2) * GRID_SPACING
 RIGHT_GRID_X :: GRID_CENTER_X + (BOARD_SIZE / 2) * GRID_SPACING
 
+USE_TRACKING_ALLOCATOR :: false
+
 mouse_to_grid :: proc(m: rl.Vector2) -> (x, y: i32) {
 	x = i32((m.x - LEFT_GRID_X + GRID_SPACING / 2) / GRID_SPACING)
 	y = i32((m.y - TOP_GRID_Y + GRID_SPACING / 2) / GRID_SPACING)
@@ -24,22 +26,26 @@ mouse_to_grid :: proc(m: rl.Vector2) -> (x, y: i32) {
 
 main :: proc() {
 	track: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&track, context.allocator)
-	context.allocator = mem.tracking_allocator(&track)
+	if USE_TRACKING_ALLOCATOR {
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+	}
 	defer {
-		if len(track.allocation_map) > 0 {
-			fmt.printf("=== %v leaks detected ===\n", len(track.allocation_map))
-			for _, entry in track.allocation_map {
-				fmt.printf("- %v bytes @ %v\n", entry.size, entry.location)
+		if USE_TRACKING_ALLOCATOR {
+			if len(track.allocation_map) > 0 {
+				fmt.printf("=== %v leaks detected ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.printf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
 			}
-		}
-		if len(track.bad_free_array) > 0 {
-			fmt.printf("=== %v bad frees detected ===\n", len(track.bad_free_array))
-			for entry in track.bad_free_array {
-				fmt.printf("- %v\n", entry.location)
+			if len(track.bad_free_array) > 0 {
+				fmt.printf("=== %v bad frees detected ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.printf("- %v\n", entry.location)
+				}
 			}
+			mem.tracking_allocator_destroy(&track)
 		}
-		mem.tracking_allocator_destroy(&track)
 	}
 
 	board := make_board()
