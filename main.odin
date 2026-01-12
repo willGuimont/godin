@@ -63,16 +63,15 @@ main :: proc() {
 		// Pass turn
 		if rl.IsKeyPressed(.SPACE) {
 			#partial switch board.state {
-			case .GameRemove:
+			case .GamePlaying, .GameRemove:
 				destroy_board(&board_t2)
 				board_t2 = board_t1
 				board_t1 = copy_board(&board)
-				confirm_removal(&board)
-			case .GamePlaying:
-				destroy_board(&board_t2)
-				board_t2 = board_t1
-				board_t1 = copy_board(&board)
-				pass(&board)
+				if board.state == .GameRemove {
+					confirm_removal(&board)
+				} else {
+					pass(&board)
+				}
 			}
 		}
 
@@ -81,7 +80,7 @@ main :: proc() {
 		mx, my := mouse_to_grid(mouse_pos)
 		if (mx >= 0 && mx < w && my >= 0 && my < h) {
 			turn_color: rl.Color
-			if board.turn == .TurnBlack {
+			if board.turn == .PlayerBlack {
 				turn_color = rl.BLACK
 			} else {
 				turn_color = rl.WHITE
@@ -101,8 +100,8 @@ main :: proc() {
 				case .GamePlaying:
 					before_put := copy_board(&board)
 					ok := put_stone(&board, int(mx), int(my))
-					ko := !board_stones_equals(&board, &board_t2)
-					if ok && ko {
+					ko := board_stones_equals(&board, &board_t2)
+					if ok && !ko {
 						destroy_board(&before_put)
 						destroy_board(&board_t2)
 						board_t2 = board_t1
@@ -131,12 +130,22 @@ main :: proc() {
 		for x: i32 = 0; x < w; x += 1 {
 			for y: i32 = 0; y < h; y += 1 {
 				s := get_stone(&board, int(x), int(y))
-				if s == .StoneEmpty {
+				color: rl.Color
+
+				switch s {
+				case .StoneEmpty:
 					continue
-				}
-				color := rl.BLACK
-				if s == .StoneWhite {
+				case .StoneBlack:
+					color = rl.BLACK
+				case .StoneWhite:
 					color = rl.WHITE
+				case .TerritoryBlack:
+					color = rl.BLACK
+					color.a = 127
+				case .TerritoryWhite:
+					color = rl.WHITE
+					color.a = 127
+				case .TerritoryNone:
 				}
 
 				to_be_removed := get_stone_removal(&board, int(x), int(y))
@@ -144,12 +153,22 @@ main :: proc() {
 					color.a = 127
 				}
 
-				rl.DrawCircle(
-					x * GRID_SPACING + LEFT_GRID_X,
-					y * GRID_SPACING + TOP_GRID_Y,
-					STONE_RADIUS,
-					color,
-				)
+				if s == .StoneBlack || s == .StoneWhite {
+					rl.DrawCircle(
+						x * GRID_SPACING + LEFT_GRID_X,
+						y * GRID_SPACING + TOP_GRID_Y,
+						STONE_RADIUS,
+						color,
+					)
+				} else if s == .TerritoryBlack || s == .TerritoryWhite {
+					rl.DrawRectangle(
+						x * GRID_SPACING + LEFT_GRID_X - STONE_RADIUS / 4,
+						y * GRID_SPACING + TOP_GRID_Y - STONE_RADIUS / 4,
+						STONE_RADIUS / 2,
+						STONE_RADIUS / 2,
+						color,
+					)
+				}
 			}
 		}
 
@@ -164,7 +183,7 @@ main :: proc() {
 		case .GameRemove:
 			rl.DrawText("Turn: Remove", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
 		case .GamePlaying:
-			if board.turn == .TurnBlack {
+			if board.turn == .PlayerBlack {
 				rl.DrawText("Turn: Black", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
 			} else {
 				rl.DrawText("Turn: White", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)

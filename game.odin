@@ -1,17 +1,20 @@
 package godin
 
-import "core:fmt"
 import "core:mem"
 import "core:slice"
+
 Stone :: enum {
 	StoneEmpty,
 	StoneBlack,
 	StoneWhite,
+	TerritoryBlack,
+	TerritoryWhite,
+	TerritoryNone,
 }
 
-Turn :: enum {
-	TurnBlack,
-	TurnWhite,
+Player :: enum {
+	PlayerBlack,
+	PlayerWhite,
 }
 
 GameState :: enum {
@@ -21,17 +24,28 @@ GameState :: enum {
 }
 
 @(private = "file")
-stone_to_turn :: proc(stone: Stone) -> Turn {
+stone_to_turn :: proc(stone: Stone) -> Player {
 	if stone == .StoneBlack {
-		return .TurnBlack
+		return .PlayerBlack
 	} else {
-		return .TurnWhite
+		return .PlayerWhite
 	}
 }
 
 @(private = "file")
-turn_to_stone :: proc(turn: Turn) -> Stone {
-	if turn == .TurnBlack {
+stone_to_territory :: proc(stone: Stone) -> Stone {
+	if stone == .StoneBlack {
+		return .TerritoryBlack
+	} else if stone == .StoneWhite {
+		return .TerritoryWhite
+	} else {
+		return .TerritoryNone
+	}
+}
+
+@(private = "file")
+turn_to_stone :: proc(turn: Player) -> Stone {
+	if turn == .PlayerBlack {
 		return .StoneBlack
 	} else {
 		return .StoneWhite
@@ -39,11 +53,11 @@ turn_to_stone :: proc(turn: Turn) -> Stone {
 }
 
 @(private = "file")
-turn_opposite :: proc(turn: Turn) -> Turn {
-	if turn == .TurnBlack {
-		return .TurnWhite
+turn_opposite :: proc(turn: Player) -> Player {
+	if turn == .PlayerBlack {
+		return .PlayerWhite
 	} else {
-		return .TurnBlack
+		return .PlayerBlack
 	}
 }
 
@@ -51,9 +65,9 @@ Board :: struct {
 	graph:     Graph(Stone),
 	width:     int,
 	height:    int,
-	turn:      Turn,
+	turn:      Player,
 	num_pass:  int,
-	score:     [Turn]f32,
+	score:     [Player]f32,
 	state:     GameState,
 	to_remove: []bool,
 }
@@ -108,15 +122,14 @@ make_board :: proc() -> Board {
 		graph = g,
 		width = BOARD_SIZE,
 		height = BOARD_SIZE,
-		turn = .TurnBlack,
+		turn = .PlayerBlack,
 		num_pass = 0,
-		score = [Turn]f32{.TurnBlack = 0, .TurnWhite = 6.5},
+		score = [Player]f32{.PlayerBlack = 0, .PlayerWhite = 6.5},
 		state = .GamePlaying,
 		to_remove = nil,
 	}
 
 }
-
 
 destroy_board :: proc(board: ^Board) {
 	graph_destroy(&board.graph)
@@ -152,12 +165,10 @@ get_stone_removal :: proc(board: ^Board, x, y: int) -> bool {
 
 put_stone :: proc(board: ^Board, x, y: int) -> (ok: bool) {
 	idx := get_board_idx(x, y)
-	fmt.println(board.graph.values[idx])
 	if board.graph.values[idx] != .StoneEmpty {
 		return
 	}
 
-	fmt.println(turn_to_stone(board.turn))
 	board.graph.values[idx] = turn_to_stone(board.turn)
 	board.turn = turn_opposite(board.turn)
 	board.num_pass = 0
@@ -211,7 +222,7 @@ get_group :: proc(board: ^Board, x, y: int) -> (group: [dynamic][2]int, libertie
 
 	visited: [dynamic]int
 	seen: [dynamic]int
-	switch color {
+	#partial switch color {
 	case .StoneBlack:
 		visited, seen = graph_bfs_predicate(&board.graph, idx, is_black)
 	case .StoneWhite:
@@ -249,6 +260,11 @@ is_black :: proc(s: Stone) -> bool {
 @(private = "file")
 is_white :: proc(s: Stone) -> bool {
 	return s == .StoneWhite
+}
+
+@(private = "file")
+is_empty :: proc(s: Stone) -> bool {
+	return s == .StoneEmpty
 }
 
 @(private = "file")
@@ -292,8 +308,9 @@ copy_board :: proc(board: ^Board) -> Board {
 	}
 
 	to_remove_copy: []bool
-	if board.to_remove != nil && len(board.to_remove) == NUM_STONES {
-		mem.copy(&to_remove_copy, &board.to_remove, NUM_STONES)
+	if board.to_remove != nil {
+		to_remove_copy = make([]bool, len(board.to_remove))
+		copy(to_remove_copy, board.to_remove)
 	}
 
 	return Board {
@@ -303,6 +320,7 @@ copy_board :: proc(board: ^Board) -> Board {
 		turn = board.turn,
 		num_pass = board.num_pass,
 		score = board.score,
+		state = board.state,
 		to_remove = to_remove_copy,
 	}
 }
@@ -316,10 +334,6 @@ toggle_remove :: proc(board: ^Board, x, y: int) {
 }
 
 confirm_removal :: proc(board: ^Board) {
-	if board.to_remove == nil {
-		board.state = .GameTerritory
-		return
-	}
 	for i := 0; i < NUM_STONES; i += 1 {
 		if board.to_remove[i] {
 			s := board.graph.values[i]
@@ -332,13 +346,53 @@ confirm_removal :: proc(board: ^Board) {
 		}
 	}
 	board.state = .GameTerritory
+	compute_territory(board)
 }
 
 calculate_score :: proc(board: ^Board) -> (black: f32, white: f32) {
-	// TODO count areas
-	black = board.score[.TurnBlack]
-	white = board.score[.TurnWhite]
+	black = board.score[.PlayerBlack]
+	white = board.score[.PlayerWhite]
 	return
+}
+
+compute_territory :: proc(board: ^Board) {
+	if board.state != .GameTerritory {
+		return
+	}
+
+	for i := 0; i < NUM_STONES; i += 1 {
+		if board.graph.values[i] == .StoneEmpty {
+			visited, seen := graph_bfs_predicate(&board.graph, i, is_empty)
+			defer {
+				delete(visited)
+				delete(seen)
+			}
+			territory_type: Maybe(Stone)
+			for s in seen {
+				stone := board.graph.values[s]
+				if stone == .StoneEmpty {
+					continue
+				}
+				if territory_type == nil {
+					territory_type = stone_to_territory(stone)
+				} else if territory_type != stone_to_territory(stone) {
+					territory_type = .TerritoryNone
+					break
+				}
+			}
+			points := f32(len(visited))
+			if territory_type == .TerritoryBlack {
+				board.score[.PlayerBlack] += points
+			} else if territory_type == .TerritoryWhite {
+				board.score[.PlayerWhite] += points
+			}
+			if territory_type != nil && territory_type != .TerritoryNone {
+				for v in visited {
+					board.graph.values[v] = territory_type.(Stone)
+				}
+			}
+		}
+	}
 }
 
 board_stones_equals :: proc(a: ^Board, b: ^Board) -> bool {
