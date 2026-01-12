@@ -62,10 +62,18 @@ main :: proc() {
 
 		// Pass turn
 		if rl.IsKeyPressed(.SPACE) {
-			destroy_board(&board_t2)
-			board_t2 = board_t1
-			board_t1 = copy_board(&board)
-			pass(&board)
+			#partial switch board.state {
+			case .GameRemove:
+				destroy_board(&board_t2)
+				board_t2 = board_t1
+				board_t1 = copy_board(&board)
+				confirm_removal(&board)
+			case .GamePlaying:
+				destroy_board(&board_t2)
+				board_t2 = board_t1
+				board_t1 = copy_board(&board)
+				pass(&board)
+			}
 		}
 
 		// Over and put stone
@@ -87,17 +95,22 @@ main :: proc() {
 			)
 
 			if rl.IsMouseButtonPressed(.LEFT) {
-				before_put := copy_board(&board)
-				ok := put_stone(&board, int(mx), int(my))
-				ko := !board_stones_equals(&board, &board_t2)
-				if ok && ko {
-					destroy_board(&before_put)
-					destroy_board(&board_t2)
-					board_t2 = board_t1
-					board_t1 = copy_board(&board)
-				} else {
-					destroy_board(&board)
-					board = before_put
+				#partial switch board.state {
+				case .GameRemove:
+					toggle_remove(&board, int(mx), int(my))
+				case .GamePlaying:
+					before_put := copy_board(&board)
+					ok := put_stone(&board, int(mx), int(my))
+					ko := !board_stones_equals(&board, &board_t2)
+					if ok && ko {
+						destroy_board(&before_put)
+						destroy_board(&board_t2)
+						board_t2 = board_t1
+						board_t1 = copy_board(&board)
+					} else {
+						destroy_board(&board)
+						board = before_put
+					}
 				}
 			}
 		}
@@ -114,25 +127,29 @@ main :: proc() {
 			rl.DrawLine(LEFT_GRID_X, yy, RIGHT_GRID_X, yy, rl.BLACK)
 		}
 
-		// Draw stones
+		// Draw stones (with removal transparency if in remove mode)
 		for x: i32 = 0; x < w; x += 1 {
 			for y: i32 = 0; y < h; y += 1 {
 				s := get_stone(&board, int(x), int(y))
-				if s == .StoneBlack {
-					rl.DrawCircle(
-						x * GRID_SPACING + LEFT_GRID_X,
-						y * GRID_SPACING + TOP_GRID_Y,
-						STONE_RADIUS,
-						rl.BLACK,
-					)
-				} else if s == .StoneWhite {
-					rl.DrawCircle(
-						x * GRID_SPACING + LEFT_GRID_X,
-						y * GRID_SPACING + TOP_GRID_Y,
-						STONE_RADIUS,
-						rl.WHITE,
-					)
+				if s == .StoneEmpty {
+					continue
 				}
+				color := rl.BLACK
+				if s == .StoneWhite {
+					color = rl.WHITE
+				}
+
+				to_be_removed := get_stone_removal(&board, int(x), int(y))
+				if board.state == .GameRemove && to_be_removed {
+					color.a = 127
+				}
+
+				rl.DrawCircle(
+					x * GRID_SPACING + LEFT_GRID_X,
+					y * GRID_SPACING + TOP_GRID_Y,
+					STONE_RADIUS,
+					color,
+				)
 			}
 		}
 
@@ -143,10 +160,17 @@ main :: proc() {
 		rl.DrawText(score_c, SCREEN_WIDTH - text_w - 10, 10, 20, rl.BLACK)
 
 		// Draw current turn at bottom-left (use C string literals)
-		if board.turn == .TurnBlack {
-			rl.DrawText(cast(cstring)"Turn: Black", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
-		} else {
-			rl.DrawText(cast(cstring)"Turn: White", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
+		switch board.state {
+		case .GameRemove:
+			rl.DrawText("Turn: Remove", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
+		case .GamePlaying:
+			if board.turn == .TurnBlack {
+				rl.DrawText("Turn: Black", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
+			} else {
+				rl.DrawText("Turn: White", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
+			}
+		case .GameTerritory:
+			rl.DrawText("Territory", 10, SCREEN_HEIGHT - 30, 20, rl.BLACK)
 		}
 
 		rl.EndDrawing()

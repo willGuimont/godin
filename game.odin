@@ -1,6 +1,8 @@
 package godin
 
 import "core:fmt"
+import "core:mem"
+import "core:slice"
 Stone :: enum {
 	StoneEmpty,
 	StoneBlack,
@@ -10,6 +12,12 @@ Stone :: enum {
 Turn :: enum {
 	TurnBlack,
 	TurnWhite,
+}
+
+GameState :: enum {
+	GamePlaying,
+	GameRemove,
+	GameTerritory,
 }
 
 @(private = "file")
@@ -40,12 +48,14 @@ turn_opposite :: proc(turn: Turn) -> Turn {
 }
 
 Board :: struct {
-	graph:    Graph(Stone),
-	width:    int,
-	height:   int,
-	turn:     Turn,
-	num_pass: int,
-	score:    [Turn]f32,
+	graph:     Graph(Stone),
+	width:     int,
+	height:    int,
+	turn:      Turn,
+	num_pass:  int,
+	score:     [Turn]f32,
+	state:     GameState,
+	to_remove: []bool,
 }
 
 BOARD_SIZE :: 9
@@ -101,21 +111,43 @@ make_board :: proc() -> Board {
 		turn = .TurnBlack,
 		num_pass = 0,
 		score = [Turn]f32{.TurnBlack = 0, .TurnWhite = 6.5},
+		state = .GamePlaying,
+		to_remove = nil,
 	}
+
 }
+
 
 destroy_board :: proc(board: ^Board) {
 	graph_destroy(&board.graph)
+	if board.to_remove != nil {
+		delete(board.to_remove)
+	}
 }
 
 pass :: proc(board: ^Board) {
 	board.turn = turn_opposite(board.turn)
 	board.num_pass += 1
+	if board.num_pass >= 2 {
+		board.state = .GameRemove
+		if board.to_remove == nil {
+			board.to_remove = make([]bool, NUM_STONES)
+		}
+		slice.fill(board.to_remove, false)
+	}
 }
 
 get_stone :: proc(board: ^Board, x, y: int) -> Stone {
 	idx := get_board_idx(x, y)
 	return board.graph.values[idx]
+}
+
+get_stone_removal :: proc(board: ^Board, x, y: int) -> bool {
+	if board.to_remove == nil {
+		return false
+	}
+	idx := get_board_idx(x, y)
+	return board.to_remove[idx]
 }
 
 put_stone :: proc(board: ^Board, x, y: int) -> (ok: bool) {
@@ -259,6 +291,11 @@ copy_board :: proc(board: ^Board) -> Board {
 		adjacency = adjacency_copy,
 	}
 
+	to_remove_copy: []bool
+	if board.to_remove != nil && len(board.to_remove) == NUM_STONES {
+		mem.copy(&to_remove_copy, &board.to_remove, NUM_STONES)
+	}
+
 	return Board {
 		graph = g,
 		width = board.width,
@@ -266,7 +303,35 @@ copy_board :: proc(board: ^Board) -> Board {
 		turn = board.turn,
 		num_pass = board.num_pass,
 		score = board.score,
+		to_remove = to_remove_copy,
 	}
+}
+
+toggle_remove :: proc(board: ^Board, x, y: int) {
+	idx := get_board_idx(x, y)
+	if board.graph.values[idx] == .StoneEmpty {
+		return
+	}
+	board.to_remove[idx] = !board.to_remove[idx]
+}
+
+confirm_removal :: proc(board: ^Board) {
+	if board.to_remove == nil {
+		board.state = .GameTerritory
+		return
+	}
+	for i := 0; i < NUM_STONES; i += 1 {
+		if board.to_remove[i] {
+			s := board.graph.values[i]
+			if s != .StoneEmpty {
+				opp := turn_opposite(stone_to_turn(s))
+				board.score[opp] += 1
+				remove_stone_i(board, i)
+			}
+			board.to_remove[i] = false
+		}
+	}
+	board.state = .GameTerritory
 }
 
 calculate_score :: proc(board: ^Board) -> (black: f32, white: f32) {
