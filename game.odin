@@ -279,7 +279,7 @@ kill_if_dead :: proc(board: ^Board, x, y: int) {
 	defer delete(group)
 
 	if liberties == 0 {
-		t := stone_to_turn(color)
+		t := turn_opposite(stone_to_turn(color))
 		for s in group {
 			remove_stone(board, s.x, s.y)
 			board.score[t] += 1
